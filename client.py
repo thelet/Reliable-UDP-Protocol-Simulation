@@ -19,8 +19,8 @@ ADDR = (HOST, PORT)
 PARAMS : Dict[str,str] ={}
 CURRENT_PACKAGES : Dict[int,Package]= {}
 NO_ACKS :Dict[int,Package] = {}
-LAST_ACK_SEQ : int = 0
-PACKAGE_COUNT =0
+LAST_ACK_SEQ : int = 1
+PACKAGE_COUNT =1
 
 ########################################
 # פתיחה של ה SOCKET וחיבור לשרת
@@ -76,6 +76,7 @@ def receive(client_socket):
 
 def send_data(package : Package, client_socket):
     global CURRENT_PACKAGES
+    global NO_ACKS
     try:
         if not check_seq_threshold(package):
             print(f"Warning:  seq threshold for package found: "
@@ -102,11 +103,15 @@ def handle_lost_packages(client_socket):
     """
     print("handling lost packages")
     resend = get_lost_packages()
+    print(f"resend: {resend}")
     if len(resend) == 0:
         for package in resend:
-            print(f"RESEND:\n{package}\n")
-            package.update_for_resend()
-            send_data(package, client_socket)
+            try:
+                print(f"RESEND:\n{package}\n")
+                package.update_for_resend()
+                send_data(package, client_socket)
+            except Exception as e:
+                print(f"Error while resending data: {e} package seq {package.getSeq()}")
 
 
 def slice_data(data : bytes):
@@ -123,9 +128,6 @@ def create_msg_packages_list(slice_list : list[bytes]):
         package = MsgPackage(data_slice.decode("utf-8"), seq= PACKAGE_COUNT)
         PACKAGE_COUNT += 1
         packages_to_send.append(package)
-    finish_package = Package("DONE", "EOMsg", seq= PACKAGE_COUNT)
-    PACKAGE_COUNT += 1
-    packages_to_send.append(finish_package)
     for package in packages_to_send:
         print(f"CREATED package type: {package.get_header()} seq: {package.getSeq()} with DATA: {package.get_payload()}")
     return packages_to_send
@@ -176,7 +178,10 @@ def ACK_Header(ack_package : Package):
     if acked_pack is not None:
         acked_pack.recvack()
         LAST_ACK_SEQ = int(ack_package.payload)
-        NO_ACKS.pop(int(ack_package.payload))
+        if ack_package.payload in NO_ACKS:
+            NO_ACKS.pop(int(ack_package.payload))
+        else:
+            print(f"Warning: No package found for key '{ack_package.payload}'.")
     else:
         print(f"Warning: No package found for key '{ack_package.payload}'.")
 
@@ -206,9 +211,21 @@ def send_msg_logic(client_socket : socket.socket):
         for pack in packages_to_send:
             print(f"TRANSFER for send- package type: {pack.get_header()} seq: {pack.getSeq()} with DATA: {pack.get_payload()}")
             send_data(pack, client_socket)
+        if all_acks_received():
+            finish_package = Package("DONE", "EOMsg", seq=PACKAGE_COUNT)
+            PACKAGE_COUNT += 1
+            CURRENT_PACKAGES.update({finish_package.getSeq(): finish_package})
+            NO_ACKS.update({finish_package.getSeq(): finish_package})
+            send_data(finish_package, client_socket)
+            break
 
+    print("\nall packages sent: ")
     for package in CURRENT_PACKAGES:
         print(CURRENT_PACKAGES.get(package))
+
+    print("\nno acks received: ")
+    for package in NO_ACKS:
+        print(NO_ACKS.get(package))
 
 
 def all_acks_received():

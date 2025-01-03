@@ -1,8 +1,11 @@
 import sys
 import socket
+from pickle import GLOBAL
 from socket import AF_INET, SOCK_STREAM
 from threading import Thread
 from time import sleep
+from typing import List
+
 import functions
 from functions import get_from_file, get_from_user, get_params
 import threading
@@ -19,7 +22,8 @@ ADDR = (HOST, PORT)
 CLIENTS = []
 PARAMS = functions.get_params()
 print(PARAMS)
-LOSE_THOSE_PACKAGE = {3,4,5,8,10,12}
+LOSE_THOSE_PACKAGE = [3,4,5,8,10,12]
+LAST_SEQ=1
 
 
 
@@ -83,7 +87,7 @@ def handle_client(CLIENT_SOCKET, client_address):
                     GET_MAX_Header(client_socket= CLIENT_SOCKET)
 
                 elif header == "MSG":
-                    MSG_Header(client_socket= CLIENT_SOCKET,msg_package= new_package)
+                    MSG_Header(client_socket= CLIENT_SOCKET,msg_package= new_package, lose_those_package=LOSE_THOSE_PACKAGE)
 
                 elif header == "CLOSE":
                     CLOSE_Header(client_socket= CLIENT_SOCKET, client_address=client_address)
@@ -118,29 +122,44 @@ def GET_MAX_Header(client_socket : socket.socket):
     client_socket.send(new_package.encode_package())
 
 
-def MSG_Header(client_socket : socket.socket, msg_package : Package):
-    global LOSE_THOSE_PACKAGE
+def MSG_Header(client_socket : socket.socket, msg_package : Package, lose_those_package : List[int] = None):
     msg =[]
+    next_acks = []
+    global LAST_SEQ
     while True:
         try:
-            msg.append(msg_package)
-            msg_package.send_ack(client_socket)
+            print(f"LOSE_THOSE_PACKAGE: {lose_those_package}", flush=True)
+            if int(msg_package.getSeq()) in lose_those_package:
+                print(f"losing package {msg_package.getSeq()}", flush=True)
+                lose_those_package.remove(int(msg_package.getSeq()))
+            else:
+                if LAST_SEQ +1 != msg_package.getSeq():
+                    print(f"package {msg_package.getSeq()} lost", flush=True)
+                    while LAST_SEQ +1 != msg_package.getSeq():
+                        next_acks.append(AckPackage(msg_package))
+                        data = client_socket.recv(BUFSIZ)
+                        msg_package = Package(" ", " ")
+                        msg_package.decode_package(data)
+                    for msg_package in next_acks:
+                        msg_package.send_ack(client_socket)
+                        print(f"ACK for package {msg_package.getSeq()}", flush=True)
+                    next_acks.clear()
+
+                msg.append(msg_package)
+                LAST_SEQ = int(msg_package.getSeq())
+                msg_package.send_ack(client_socket)
+                if msg_package.get_header() == "DONE":
+                    print("DONE")
+                    MSG_DONE_Header(msg=msg, client_socket=client_socket, msg_package=msg_package)
+                    break
+
             data = client_socket.recv(BUFSIZ)
             msg_package = Package(" ", " ")
             msg_package.decode_package(data)
-            if msg_package.get_header() == "DONE":
-                print("DONE", flush=True)
-                msg_package.send_ack(client_socket)
-                str_msg = ""
-                #msg.sort(key=lambda package: package.getSeq())
-                for pack in msg:
-                    str_msg += pack.get_payload()
-                print("")
-                print(str_msg)
-                print("")
-                break
+
         except Exception as e:
             print(f"Error while handling msg: {e}", flush=True)
+            break
 
 
 def CLOSE_Header(client_socket : socket.socket, client_address):
@@ -149,6 +168,16 @@ def CLOSE_Header(client_socket : socket.socket, client_address):
     CLIENTS.remove(client_address)
 
 
+def MSG_DONE_Header(msg : List[Package], client_socket : socket.socket, msg_package : Package):
+    msg_package.send_ack(client_socket)
+    str_msg = ""
+    msg.sort(key=lambda package: package.getSeq())
+    print(f"{pack.get_payload()} , " for pack in msg)
+    for pack in msg:
+        str_msg += pack.get_payload()
+    print("")
+    print(str_msg)
+    print("")
 
 def my_excepthook(exc):
     """
@@ -186,32 +215,6 @@ def main():
     except Exception as e:
         print(f"Exception in main: {e}", flush=True)
 
-
-    """
-    def main(): 
-        try:
-            threading.excepthook = my_excepthook
-
-            print("Server is starting...", flush=True)
-            server_socket = create_server_socket()
-            print("Waiting for connection...", flush=True)
-            ACCEPT_THREAD = Thread(target=accept_incoming_connections, args=(server_socket,))
-            #ACCEPT_THREAD.join()
-            # Remove the join:
-            ACCEPT_THREAD.start()
-
-            # Keep the main thread alive:
-            try:
-                while True:
-                    pass
-            except KeyboardInterrupt:
-                print("Shutting down server...")
-            except Exception as e:
-                print(f"Error: {e}", flush=True)
-
-    except Exception as e:
-        print(f" Exception in main:  {e}")
-    """
 
 
 if __name__ == '__main__':
