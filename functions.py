@@ -2,7 +2,32 @@ import sys
 from typing import Dict, List
 import os
 
+import subprocess
 
+
+def run_script_in_new_terminal(script_path):
+    """
+    Runs a Python script in a new terminal window.
+
+    Args:
+        script_path (str): The path to the Python script to run.
+    """
+    try:
+        # Adjust command based on your OS
+        command = [
+            "python",  # Use 'python3' if needed
+            script_path,
+        ]
+
+        # On Windows: Use `start` to open in a new terminal
+        subprocess.Popen(["start", "cmd", "/k"] + command, shell=True)
+
+        # On macOS/Linux: Use `gnome-terminal`, `xterm`, or equivalent
+        # subprocess.Popen(["gnome-terminal", "--"] + command)
+
+        print(f"Running {script_path} in a new terminal window.")
+    except Exception as e:
+        print(f"Error running script {script_path}: {e}")
 
 
 def get_from_user():

@@ -21,6 +21,8 @@ CURRENT_PACKAGES : Dict[int,Package]= {}
 NO_ACKS :Dict[int,Package] = {}
 LAST_ACK_SEQ : int = 1
 PACKAGE_COUNT =1
+TIME_WINDOW =0
+SEQ_WINDOW = 0
 
 ########################################
 # פתיחה של ה SOCKET וחיבור לשרת
@@ -36,10 +38,10 @@ def initial_connection(client_socket):
     client_socket.send(Package("GET_MAX", " ").encode_package())
 
 
+
 def receive(client_socket):
     """Continuously listens for messages (or ACKs) from the server."""
     global PARAMS
-    global LAST_ACK_SEQ
     while True:
         try:
             data = client_socket.recv(BUFSIZ)
@@ -76,23 +78,55 @@ def receive(client_socket):
 
 def send_data(package : Package, client_socket):
     global CURRENT_PACKAGES
+    global TIME_WINDOW
+    global SEQ_WINDOW
     global NO_ACKS
     try:
+        CURRENT_PACKAGES.update({int(package.getSeq()): package})
+        NO_ACKS.update({int(package.getSeq()): package})
         if not check_seq_threshold(package):
             print(f"Warning:  seq threshold for package found: "
                   f"\npackage seq: {package.getSeq()}\n"
-                  f"Last ack sequence: {LAST_ACK_SEQ}")
-            handle_lost_packages(client_socket)
+                  f"Window seq: {SEQ_WINDOW}\n"
+                  f"package prev seq: {package.get_prev_seq()}\n"
+                  f"handling lost pack:")
+            """
+            resend = get_lost_packages()
+            if resend and len(resend) > 0:
+                print("handling lost packages")
+                handle_lost_packages(client_socket, resend)
+            """
+            handle_lost_packages(client_socket, None)
+
         time.sleep(0.1)
+        print(f"time wind: {TIME_WINDOW} seq win: {SEQ_WINDOW}")
         print(f"SENDING package :\n {package}")
         client_socket.send(package.encode_package())
-        CURRENT_PACKAGES.update({package.getSeq(): package})
-        NO_ACKS.update({package.getSeq(): package})
+        #TIME_WINDOW = package.get_time() + int(PARAMS["timeout"])
+
     except Exception as e:
         print(f"Error while sending data: {e} package seq {package.getSeq()}")
 
+def resend_data( package: Package, client_socket):
+    global CURRENT_PACKAGES
+    global TIME_WINDOW
+    global SEQ_WINDOW
+    global NO_ACKS
+    try:
+        CURRENT_PACKAGES.update({int(package.getSeq()): package})
+        NO_ACKS.update({int(package.getSeq()): package})
+        print(f"time wind: {TIME_WINDOW} seq win: {SEQ_WINDOW}")
+        print(f"RESENDING package :\n {package}")
+        client_socket.send(package.encode_package())
 
-def handle_lost_packages(client_socket):
+    except Exception as e:
+        print(f"Error resending while sending data: {e} package seq {package.getSeq()}")
+
+def handle_lost_packages(client_socket, resend):
+    global PACKAGE_COUNT
+    global LAST_ACK_SEQ
+    global TIME_WINDOW
+    global SEQ_WINDOW
     """
     global CURRENT_PACKAGES
     for seq in CURRENT_PACKAGES:
@@ -101,10 +135,9 @@ def handle_lost_packages(client_socket):
             print(f"RESEND:\n{package}\n")
             send_data(package.update_for_resend(), client_socket)
     """
-    print("handling lost packages")
-    resend = get_lost_packages()
+    """
     print(f"resend: {resend}")
-    if len(resend) == 0:
+    if resend:
         for package in resend:
             try:
                 print(f"RESEND:\n{package}\n")
@@ -112,6 +145,39 @@ def handle_lost_packages(client_socket):
                 send_data(package, client_socket)
             except Exception as e:
                 print(f"Error while resending data: {e} package seq {package.getSeq()}")
+    """
+    print(f"handling lost pack func: ")
+    if LAST_ACK_SEQ +1 in CURRENT_PACKAGES:
+
+        to_send = CURRENT_PACKAGES.get(LAST_ACK_SEQ +1)
+        print(f"found lost pack: to send")
+        CURRENT_PACKAGES.update({int(to_send.getSeq()): to_send})
+        to_send.update_for_resend(PACKAGE_COUNT + 1, to_send.getSeq())
+        if LAST_ACK_SEQ + 2 in CURRENT_PACKAGES:
+            next_threshold = CURRENT_PACKAGES.get(LAST_ACK_SEQ+2)
+            TIME_WINDOW = next_threshold.get_time() + int(PARAMS["timeout"])
+            SEQ_WINDOW = int(PARAMS["window_size"]) + int(next_threshold.getSeq())
+            print(f"updating window size by next pack {SEQ_WINDOW}")
+        else:
+            TIME_WINDOW = time.time() + int(PARAMS["timeout"])
+            SEQ_WINDOW = to_send.get_prev_seq() + int(PARAMS["window_size"]) + 1
+            print(f"updating window size by 2 {SEQ_WINDOW}")
+
+        resend_data(to_send, client_socket)
+        #wating for ack
+    
+        data = client_socket.recv(BUFSIZ)
+        new_package = Package(" ", " ")
+        new_package.decode_package(data)
+
+        header = new_package.get_header()
+        if header == "ACK":
+            ACK_Header(ack_package= new_package)
+        else:
+            print(f"Undetected header: \nRaw data received : {data}", flush=True)
+
+
+
 
 
 def slice_data(data : bytes):
@@ -148,38 +214,53 @@ def check_treshhold(package : Package):
     return  check_time_threshold(package) and check_seq_threshold(package)
 
 def check_time_threshold(package : Package):
-    if time.time() - package.get_time() > int(PARAMS["timeout"]):
-        print(f"time threshold passed: \ncurrent time: {time.time()} current pack time: {package.get_time()} diff: {int(time.time()) - int(package.get_time())} )")
-        return False
-    else:
-        return True
+    if package is not None:
+        if TIME_WINDOW and TIME_WINDOW <= time.time():
+            print(f"time threshold passed: \ncurrent time: {time.time()} current pack time: {package.get_time()} diff: {int(time.time()) - int(package.get_time())} )")
+            return False
+        else:
+            return True
 
 def check_seq_threshold(package : Package):
     global LAST_ACK_SEQ
     if package is not None:
-        if int(package.getSeq()) - int(LAST_ACK_SEQ) > int(PARAMS["window_size"]):
+        if SEQ_WINDOW and SEQ_WINDOW < package.getSeq():
             print(
-                f"window size threshold passed: \nlast ack number: {LAST_ACK_SEQ} current pack number: {package.getSeq()} diff: {int(package.getSeq()) - int(LAST_ACK_SEQ)} ")
+                f"window size threshold passed: \nwindow size: {SEQ_WINDOW} current pack number: {package.getSeq()} diff: {int(package.getSeq()) - int(LAST_ACK_SEQ)} ")
             return False
         else:
             return True
 
 
 def GET_MAX_Header(params_package : Package):
+    global PARAMS
+    global TIME_WINDOW
+    global SEQ_WINDOW
     PARAMS.update(params_package.get_params())
     print(PARAMS)
+    PARAMS["timeout"] = str(int(PARAMS["timeout"]) * 10000000)
+    TIME_WINDOW = time.time() + int(PARAMS["timeout"])
+    SEQ_WINDOW = int(PARAMS["window_size"])
 
 
 def ACK_Header(ack_package : Package):
     global LAST_ACK_SEQ
-    global LAST_ACK_TIME
+    global TIME_WINDOW
+    global SEQ_WINDOW
     print(f"received ACK {ack_package.payload}")
     acked_pack = CURRENT_PACKAGES.get(int(ack_package.payload))
     if acked_pack is not None:
         acked_pack.recvack()
         LAST_ACK_SEQ = int(ack_package.payload)
-        if ack_package.payload in NO_ACKS:
+        SEQ_WINDOW = int(PARAMS["window_size"]) + int(ack_package.payload)
+        if int(ack_package.payload) + 1 in CURRENT_PACKAGES:
+            next_timer = CURRENT_PACKAGES.get(ack_package.getSeq() + 1).get_time()
+            TIME_WINDOW = time.time() + next_timer
+        if int(ack_package.payload) in NO_ACKS:
             NO_ACKS.pop(int(ack_package.payload))
+
+
+
         else:
             print(f"Warning: No package found for key '{ack_package.payload}'.")
     else:
@@ -205,7 +286,10 @@ def send_msg_logic(client_socket : socket.socket):
         if msg == "1":
             send_CLOSE_msg(client_socket = client_socket)
             break
-        handle_lost_packages(client_socket)
+        resend = get_lost_packages()
+        if resend and len(resend) > 0:
+            print("handling lost packages")
+            handle_lost_packages(client_socket, resend)
         sliced_msg = slice_data(msg.encode("utf-8"))
         packages_to_send = create_msg_packages_list(slice_list=sliced_msg)
         for pack in packages_to_send:
@@ -236,7 +320,13 @@ def before_closing(client_socket : socket.socket):
     while not all_acks_received():
         time.sleep(0.5)
         try:
-            handle_lost_packages(client_socket)
+            print("handling lost packages")
+            resend = get_lost_packages()
+            if resend and len(resend) > 0:
+                handle_lost_packages(client_socket, resend)
+            else:
+                print("no lost packages found")
+                break
         except OSError as e:
             print(f"Error while sending last data, closing connection : {e}", flush=True)
             break

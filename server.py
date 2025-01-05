@@ -22,8 +22,8 @@ ADDR = (HOST, PORT)
 CLIENTS = []
 PARAMS = functions.get_params()
 print(PARAMS)
-LOSE_THOSE_PACKAGE = [3,4,5,8,10,12]
-LAST_SEQ=1
+LOSE_THOSE_PACKAGE = [3,8,10,12]
+LAST_SEQ=0
 
 
 
@@ -133,17 +133,22 @@ def MSG_Header(client_socket : socket.socket, msg_package : Package, lose_those_
                 print(f"losing package {msg_package.getSeq()}", flush=True)
                 lose_those_package.remove(int(msg_package.getSeq()))
             else:
-                if LAST_SEQ +1 != msg_package.getSeq():
-                    print(f"package {msg_package.getSeq()} lost", flush=True)
-                    while LAST_SEQ +1 != msg_package.getSeq():
+                print(f"LAST_SEQ: {LAST_SEQ} current seq: {msg_package.get_prev_seq()}")
+                if int(LAST_SEQ) +1 != int(msg_package.get_prev_seq()):
+                    print(f"package {int(msg_package.get_prev_seq()) -1} lost", flush=True)
+                    while LAST_SEQ+1 != int(msg_package.get_prev_seq()):
+                        print(f"LAST_SEQ: {LAST_SEQ} current seq: {msg_package.get_prev_seq()}")
                         next_acks.append(AckPackage(msg_package))
                         data = client_socket.recv(BUFSIZ)
                         msg_package = Package(" ", " ")
                         msg_package.decode_package(data)
                     for msg_package in next_acks:
                         msg_package.send_ack(client_socket)
+                        LAST_SEQ += 1
                         print(f"ACK for package {msg_package.getSeq()}", flush=True)
                     next_acks.clear()
+                else:
+                    LAST_SEQ += 1
 
                 msg.append(msg_package)
                 LAST_SEQ = int(msg_package.getSeq())

@@ -7,12 +7,15 @@ class Package:
     def __init__(self, header : str, payload :str, seq : Optional[int] = None):
         if seq is None:
             self.seq =0
+            self.prev_seq = 0
         else:
             self.seq = seq
+            self.prev_seq = seq
         self.sent_time = time.time()
         self.payload = payload
         self.header = header
         self.ackrecv = False
+
 
     # function to print the packet with its variables
     def __str__(self):
@@ -46,13 +49,14 @@ class Package:
         self.seq = string_package[1]
         self.sent_time = string_package[2]
         self.payload = string_package[3]
+        self.prev_seq = string_package[4]
         self.ackrecv = False
 
 
     def encode_package(self):
         if not self.payload:
             return {}
-        encoded = f"{self.header}&{self.seq}&{self.sent_time}&{self.payload}"
+        encoded = f"{self.header}&{self.seq}&{self.sent_time}&{self.payload}&{self.prev_seq}"
         return encoded.encode("utf-8")
 
 
@@ -60,12 +64,14 @@ class Package:
 #   resend updates   #
 ######################
 
-    def update_for_resend(self):
+    def update_for_resend(self, new_seq , prev_seq):
         self.sent_time = time.time()
+        self.prev_seq = prev_seq
+        self.seq = new_seq
 
 
-######################
-#      getters      #
+    ######################
+    #      getters      #
 ######################
 
     def getSeq(self):
@@ -78,6 +84,8 @@ class Package:
         return self.payload
     def get_header(self):
         return self.header
+    def get_prev_seq(self):
+        return self.prev_seq
 
 
 #decode for payload type "param"
