@@ -45,11 +45,11 @@ class Package:
         string_package = package_bytes.decode("utf-8")
         string_package = string_package.split("&")
         print(string_package)
-        self.header = string_package[0]
-        self.seq = string_package[1]
-        self.sent_time = string_package[2]
-        self.payload = string_package[3]
-        self.prev_seq = string_package[4]
+        self.header = str(string_package[0])
+        self.seq = int(string_package[1])
+        self.sent_time = float(string_package[2])
+        self.payload = str(string_package[3])
+        self.prev_seq = int(string_package[4])
         self.ackrecv = False
 
 
