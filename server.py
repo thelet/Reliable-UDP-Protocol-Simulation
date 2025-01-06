@@ -1,32 +1,35 @@
 import sys
 import socket
+from ctypes.wintypes import HANDLE
 from pickle import GLOBAL
 from socket import AF_INET, SOCK_STREAM
 from threading import Thread
-from time import sleep
+from time import sleep, time
 from typing import List, Dict
 
 import functions
+
 from functions import get_from_file, get_from_user, get_params
 import threading
 
-from package import Package, GetPackage, AckPackage
+from package import Package
 
 
 
 HOST = '127.0.0.1'
 PORT = 55558
-BUFSIZ = 44
-MAX_CLIENTS = 5
+
+HANDLED_GET = False
+MAX_CLIENTS = 1
 ADDR = (HOST, PORT)
 CLIENTS = []
 PARAMS = functions.get_server_params()
 print(PARAMS)
-MAX_MSG_SIZE = PARAMS["maximum_msg_size"]
+MAX_MSG_SIZE = 4
 LOSE_THOSE_PACKAGE = [3,9,14]
 LAST_SEQ=0
-HEADER_SIZE = 30
-
+HEADER_SIZE = 40
+BUFSIZ = HEADER_SIZE + MAX_MSG_SIZE
 
 
 def create_server_socket():
@@ -62,21 +65,28 @@ def accept_incoming_connections(server_socket : socket.socket):
                     print("Already connected.", flush=True)
                     break
 
-            except Exception as e:
-                print(f"Error while connecting to client: {e}", flush=True)
+            except OSError as e:
+                if hasattr(e, 'winerror') and e.winerror == 10054:
+                    print(f"Client: forcibly closed the connection", flush=True)
+                else:
+                    print(f"Error while connecting to client: {e}", flush=True)
                 break
+
     except Exception as e:
         print(f"Error while connecting to client: {e}", flush=True)
 
 
 
 def handle_client(CLIENT_SOCKET, client_address):
-
+    global MAX_MSG_SIZE
     print(f"Handling client {client_address}", flush=True)
-
+    done= initial_connection(CLIENT_SOCKET, client_address)
+    if done:
+        update_buffer_andmax_size(PARAMS["maximum_msg_size"])
     try:
         while True:
             try:
+
                 data = CLIENT_SOCKET.recv(BUFSIZ)
 
                 if not data:
@@ -85,7 +95,8 @@ def handle_client(CLIENT_SOCKET, client_address):
                     break
 
                 new_package = Package("TEMP", " ")
-                new_package.decode_package(data, PARAMS["maximum_msg_size"])
+                print(f"current max size: {MAX_MSG_SIZE}")
+                new_package.decode_package(data, MAX_MSG_SIZE)
 
                 header = new_package.get_header()
 
@@ -94,9 +105,11 @@ def handle_client(CLIENT_SOCKET, client_address):
                     GET_MAX_Header(client_socket= CLIENT_SOCKET)
 
                 elif header == "MSG" or header == "DONE":
+                    print(f"MSG from {client_address}, starting to receive:")
                     MSG_Header(client_socket= CLIENT_SOCKET,msg_package= new_package, lose_those_package=LOSE_THOSE_PACKAGE, client_address= client_address)
 
                 elif header == "CLOSE":
+                    print(f"CLOSE request from {client_address}")
                     CLOSE_Header(client_socket= CLIENT_SOCKET, client_address=client_address)
                     break
 
@@ -105,28 +118,28 @@ def handle_client(CLIENT_SOCKET, client_address):
                     pass
 
             except OSError as e:
-                # Check if the error is specifically WinError 10054
+                # Check if the error is specifically WinError 10054- means that client disconnected without sending CLOSE package
                 if hasattr(e, 'winerror') and e.winerror == 10054:
                     print(f"Client {client_address} forcibly closed the connection", flush=True)
-                    #CLOSE_Header(client_socket= CLIENT_SOCKET, client_address=client_address)
                     break
                 else:
                     print(f"Error with client {client_address}: {e}", flush=True)
-                    CLOSE_Header(client_socket= CLIENT_SOCKET, client_address=client_address)
                     break
-            except WindowsError as ex:
-                print(f"Error while handling client {client_address}: {ex}", flush=True)
     except OSError as ex:
         print(f"Error while handling client {client_address}: {ex}", flush=True)
 
 
 
 def GET_MAX_Header(client_socket : socket.socket):
-    global BUFSIZ
-    new_package = Package("RETURN_MAX", PARAMS["maximum_msg_size"])
-    print(f"SENDING max size package :\n {new_package}")
-    #BUFSIZ = int(PARAMS["maximum_msg_size"] + HEADER_SIZE)
-    client_socket.send(new_package.encode_package(int(PARAMS["maximum_msg_size"])))
+    global MAX_MSG_SIZE
+    try:
+        new_package = Package("RETURN_MAX", PARAMS["maximum_msg_size"])
+        print(f"SENDING max size package :\n {new_package}")
+        client_socket.send(new_package.encode_package(4))
+        return True
+    except Exception as e:
+        print(f"Error while sending max size package: {e}", flush=True)
+
 
 
 def MSG_Header(client_socket : socket.socket, msg_package : Package, lose_those_package : List[int] = None, client_address = None):
@@ -134,28 +147,42 @@ def MSG_Header(client_socket : socket.socket, msg_package : Package, lose_those_
     msg_list = []
     full_msg = []
     while msg_package.get_header() == "MSG":
-        data = client_socket.recv(BUFSIZ)
-        msg_package = Package("TEMP", " ")
-        msg_package.decode_package(data, PARAMS["maximum_msg_size"])
-        print(f"received package: {msg_package}, last_seq = {last_seq}")
-        msg_list.append(msg_package)
-        msg_list.sort(key=lambda package: package.get_pos())
+        try:
 
-        for pack in msg_list:
-            if int(pack.get_pos()) == last_seq +1:
-                print(f"sending ack for pack: {pack}")
-                pack.send_ack(client_socket, PARAMS["maximum_msg_size"])
-                last_seq = pack.get_pos()
-                full_msg.append(pack)
-        for pack in full_msg:
-            if pack.get_pos() in msg_list:
-                msg_list.remove(pack)
+            data = client_socket.recv(BUFSIZ)
+            msg_package = Package("TEMP", " ")
+            msg_package.decode_package(data, PARAMS["maximum_msg_size"])
+            print(f"received package: {msg_package} last_seq = {last_seq}")
+            msg_list.append(msg_package)
+            msg_list.sort(key=lambda package: package.get_pos())
+
+            for pack in msg_list:
+                if int(pack.get_pos()) == last_seq +1:
+                    print(f"sending ack for pack: {pack}")
+                    pack.send_ack(client_socket, PARAMS["maximum_msg_size"])
+                    last_seq = pack.get_pos()
+                    full_msg.append(pack)
+            for pack in full_msg:
+                if pack in msg_list:
+                    msg_list.remove(pack)
+
+        except Exception as e:
+            print(f"Error while receiving MSG data: {e}", flush=True)
+            break
 
     if msg_package.get_header() == "DONE":
         print(f"done sending file")
         if msg_list or len(msg_list) > 0:
             print(f"warning! lost data: {[pack.get_payload() for pack in msg_list]}")
-        MSG_DONE_Header(msg_list, client_socket, msg_package)
+        MSG_DONE_Header(client_socket, msg_package, full_msg)
+
+    elif msg_package.get_header() == "CLOSE":
+        print(f"Warning! client {client_address} sent CLOSE package before DONE package, closing connection.")
+        CLOSE_Header(client_socket= client_socket, client_address=client_address)
+
+    else:
+        print(f"Undetected header: \nPackage received from {client_address}: {msg_package}", flush=True)
+
 
 
 
@@ -166,16 +193,18 @@ def CLOSE_Header(client_socket : socket.socket, client_address):
     CLIENTS.remove(client_address)
 
 
-def MSG_DONE_Header(msg : List[Package], client_socket : socket.socket, msg_package : Package):
-    msg_package.send_ack(client_socket, PARAMS["maximum_msg_size"])
+def MSG_DONE_Header(client_socket : socket.socket, msg_package : Package, msg : List[Package]):
+    if msg_package:
+        msg_package.send_ack(client_socket, PARAMS["maximum_msg_size"])
     str_msg = ""
-    msg.sort(key=lambda package: package.get_pos())
-    print(f"{pack.get_payload()} , " for pack in msg)
-    for pack in msg:
-        str_msg += pack.get_payload()
-    print("\n full message received: ")
-    print(str_msg)
-    print("")
+    if msg:
+        msg.sort(key=lambda package: package.get_pos())
+        print(f"{pack.get_payload()} , " for pack in msg)
+        for pack in msg:
+            str_msg += pack.get_payload()
+        print("\n full message received: ")
+        print(str_msg)
+        print("")
 
 def my_excepthook(exc):
     """
@@ -185,6 +214,23 @@ def my_excepthook(exc):
     """
     print(f"Thread {exc.thread.name} encountered an exception: "
           f"{exc.exc_type.__name__}: {exc.exc_value}", flush=True)
+
+def update_buffer_andmax_size(new_max_size):
+    global MAX_MSG_SIZE
+    global BUFSIZ
+    MAX_MSG_SIZE = new_max_size
+    BUFSIZ = HEADER_SIZE + MAX_MSG_SIZE
+    print(f"updated buffer size to {BUFSIZ} and max size to {MAX_MSG_SIZE}", flush=True)
+
+def initial_connection(client_socket : socket.socket, client_address):
+    data = client_socket.recv(HEADER_SIZE + 4)
+    pack_get = Package("TEMP", "")
+    pack_get.decode_package(data, 4)
+    header = pack_get.get_header()
+    if header == "GET_MAX":
+        print(f"GET_MAX from {client_address}")
+        done = GET_MAX_Header(client_socket=client_socket)
+        return done
 
 
 def main():

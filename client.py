@@ -13,16 +13,17 @@ import package
 
 
 import functions
-from package import Package, AckPackage, GetPackage, MsgPackage,ClosePackage
+from package import Package
 
-
-########################################
-# הגדרה גלובלית של המשתנים
-########################################
 
 HOST = '127.0.0.1'
 PORT = 55558
-BUFSIZ = 44
+
+HEADER_SIZE = package.HEADER_SIZE
+MAX_MSG_SIZE = 4
+BUFSIZ = HEADER_SIZE + MAX_MSG_SIZE
+GOT_MAX_SIZE = False
+
 ADDR = (HOST, PORT)
 PARAMS : Dict[str,str] ={}
 PACKAGES_TO_LOSE = [4,9,10]
@@ -47,17 +48,27 @@ def create_client_socket():
 
 
 def initial_connection(client_socket):
-    client_socket.send(Package("GET_MAX", "asking for max msg size").encode_package(10))
+    client_socket.send(Package("GET_MAX", "").encode_package(4))
+    data = client_socket.recv(HEADER_SIZE + 4)
+    pack_get = Package("TEMP", "")
+    pack_get.decode_package(data, 4)
+    header = pack_get.get_header()
+    if header == "RETURN_MAX":
+        done = GET_MAX_Header(params_package=pack_get)
+        return done
 
 
 def receive(client_socket):
     """Continuously listens for messages (or ACKs) from the server."""
     global PARAMS
+    global BUFSIZ
     while True:
         try:
+            print(f"current buffer : {BUFSIZ}")
+
             data = client_socket.recv(BUFSIZ)
             new_package = Package("TEMP", " ")
-            new_package.decode_package(data, 10)
+            new_package.decode_package(data, MAX_MSG_SIZE)
 
             header = new_package.get_header()
 
@@ -112,11 +123,17 @@ def GET_MAX_Header(params_package : Package):
     global PARAMS
     global TIME_WINDOW
     global SEQ_WINDOW
+    global BUFSIZ
+    global HEADER_SIZE
+    global GOT_MAX_SIZE
     PARAMS.update(functions.get_client_params())
     PARAMS.update({"maximum_msg_size" : params_package.get_payload()})
     print(f" got max size from server: {PARAMS}")
     TIME_WINDOW = float(time.time()) + float(PARAMS["timeout"])
     SEQ_WINDOW = int(PARAMS["window_size"])
+    update_buffer_andmax_size(int(PARAMS["maximum_msg_size"]))
+    GOT_MAX_SIZE = True
+    return True
 
 
 
@@ -315,12 +332,12 @@ def get_last_ack_seq():
     return 0
 
 
-def recv_with_timeout(sock, timeout=2.0):
-    ready, _, _ = select.select([sock], [], [], timeout)
-    if ready:
-        return sock.recv(1024)  # Adjust buffer size as needed
-    else:
-        return None
+def update_buffer_andmax_size(new_max_size):
+    global MAX_MSG_SIZE
+    global BUFSIZ
+    MAX_MSG_SIZE = new_max_size
+    BUFSIZ = HEADER_SIZE + MAX_MSG_SIZE
+    print(f"updated buffer size to {BUFSIZ} and max size to {MAX_MSG_SIZE}", flush=True)
 
 
 def main_client():

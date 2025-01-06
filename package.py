@@ -1,4 +1,4 @@
-import json
+
 import socket
 import struct
 import time
@@ -8,7 +8,7 @@ CLIENT_HEADERS = ["GET_MAX", "MSG", "CLOSE", "DONE"]
 SERVER_HEADERS = ["ACK", "DISCONNECT", "RETURN_MAX", "TEMP"]
 max_header_size = max( len(s) for s in CLIENT_HEADERS + SERVER_HEADERS)
 PACKAGE_COUNT = 0
-HEADER_SIZE = 32
+HEADER_SIZE = 40
 
 
 
@@ -63,8 +63,6 @@ class Package:
     def encode_package(self, max_payload) -> bytes:
         global max_header_size
         """
-        Serialize the package into a fixed-size byte structure.
-
         Format:
         - header: 10 bytes (string, padded with \x00)
         - payload: 50 bytes (string, padded with \x00)
@@ -78,15 +76,6 @@ class Package:
         fixed_header = self.header[:max_header_size].ljust(max_header_size, "\x00")
         fixed_payload = self.payload[:max_payload].ljust(max_payload, "\x00")
 
-        # Define the struct format
-        # Explanation:
-        # - 10s -> 10-byte string
-        # - 50s -> 50-byte string
-        # - i   -> 4-byte integer
-        # - d   -> 8-byte double (floating-point)
-        # - ?   -> 1-byte boolean
-        # - i   -> 4-byte integer
-        #- i   -> 4-byte integer
         format_str = f"{max_header_size}s{max_payload}s i d ? i i"
 
         # Pack the data
@@ -109,6 +98,9 @@ class Package:
         global max_header_size
         # Must match the same format used in encode_package
         format_str = f"{max_header_size}s{max_payload}s i d ? i i"
+        expected_size = struct.calcsize(format_str)
+        if len(package_bytes) < expected_size:
+            raise ValueError(f"Expected {expected_size} bytes, but received {len(package_bytes)} bytes, max payload : {max_payload}")
 
         #try:
         unpacked_data = struct.unpack(format_str, package_bytes)
@@ -171,59 +163,7 @@ class Package:
         return self.pos
 
 
-#decode for payload type "param"
-    def get_params(self):
-        if self.header == "GET_MAX":
-            package_params = {}
-            # Split the entire payload by '*'
-            lines = self.payload.split("*")
-            for line in lines:
-                # Clean up whitespace
-                line = line.strip()
-                if not line:
-                    continue
-                if ":" not in line:
-                    print(f"Skipping malformed line: {line}")
-                    continue
-                # Split once by ':' to separate key from value
-                key, value = line.split(":", 1)
-                key = key.strip()
-                value = value.strip()
-                # Store in our dictionary
-                package_params[key] = value
-            return package_params
-        else:
-            print("Invalid package header")
-            return None
-
-
-class AckPackage(Package):
-    def __init__(self, recv_package : Package):
-        super().__init__("ACK",payload= str(recv_package.getSeq()))
-        self.seq = recv_package.getSeq()
-
-
-class GetPackage(Package):
-    def __init__(self, params: Dict[str, str]):
-        super().__init__("GET_MAX", "")
-        # Build the payload using '*' to separate parameters
-        # and ':' to separate key-value within each parameter.        #
-        str_params = (
-            f"massage:{params['massage']}"      
-            f"*maximum_msg_size:{params['maximum_msg_size']}"
-            f"*window_size:{params['window_size']}"
-            f"*timeout:{params['timeout']}"
-        )
-        self.payload = str_params
 
 
 
-class MsgPackage(Package):
-    def __init__(self, payload : str, seq : Optional[int] = None):
-        super().__init__(header="MSG",  payload= payload,seq=seq)
-
-
-class ClosePackage(Package):
-    def __init__(self, seq : Optional[int] = None):
-        super().__init__("CLOSE", "", seq = seq)
 
