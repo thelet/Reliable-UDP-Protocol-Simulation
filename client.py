@@ -94,7 +94,7 @@ def check_treshhold(package_seq):
 def check_time_threshold():
     if package is not None:
         if TIME_WINDOW and TIME_WINDOW <= time.time():
-            print(f"time threshold passed: \ncurrent time: {time.time()} current window: {TIME_WINDOW})")
+            print(f"THRESHOLD PASSED (time): \nTime Window: {TIME_WINDOW}, Current time: {time.time()} ")
             return False
         else:
             return True
@@ -102,8 +102,7 @@ def check_time_threshold():
 def check_seq_threshold(package_seq):
     if package is not None:
         if SEQ_WINDOW and int(SEQ_WINDOW) < int(package_seq):
-            print(
-                f"window size threshold passed: \nwindow size: {SEQ_WINDOW} current pack number: {package_seq} diff: {int(package_seq) - int(get_last_ack_seq())} ")
+            print(f"THRESHOLD PASSED (seq): \nSeq Window: {SEQ_WINDOW}, Current pack seq: {package_seq}")
             return False
         else:
             return True
@@ -202,14 +201,11 @@ def send_logic(client_socket : socket.socket, sliced_msg : list[bytes]):
     for data_slice in sliced_msg:
         seq+=1
         update_window_size()
+        time.sleep(0.3)
         if not check_time_threshold() or not check_seq_threshold(seq):
             print("resend lost package")
             sent = resend_logic(client_socket)
-            if sent:
-                seq+=1
-
-        send_data(data_slice, client_socket)
-        time.sleep(0.3)
+        send_data(data_slice.decode("utf-8"), client_socket)
     before_closing(client_socket)
 
 
@@ -298,7 +294,7 @@ def update_time_window():
     global TIME_WINDOW
     last_no_ack = get_lost_package()
     if last_no_ack is not None and TIME_WINDOW is not None:
-        print(f'\nUpdating TIME window by package {last_no_ack.get_pos()} :\n'
+        print(f'Updating TIME window by package {last_no_ack.get_pos()} :\n'
               f'New time window {float(last_no_ack.get_time()) + float(PARAMS["timeout"])}, Prev time window: {TIME_WINDOW}')
         TIME_WINDOW = float(last_no_ack.get_time()) + float(PARAMS["timeout"])
 
@@ -307,8 +303,8 @@ def update_seq_window():
     global SEQ_WINDOW
     last_ack = get_last_ack_seq()
     if last_ack is not None and SEQ_WINDOW is not None:
-        print(f'Updating SEQ window size by: {last_ack}\n'
-              f'new seq size: {int(PARAMS["window_size"]) + int(last_ack)} prev seq size : {SEQ_WINDOW}\n')
+        print(f'Updating SEQ window size by last acked pack: {last_ack}\n'
+              f'New seq window: {int(PARAMS["window_size"]) + int(last_ack)} Prev seq window : {SEQ_WINDOW}\n')
         SEQ_WINDOW = int(PARAMS["window_size"]) + int(last_ack)
 
 
