@@ -49,6 +49,46 @@ def get_from_user():
             sys.exit(1)
 
 
+import json
+
+
+def file_to_json(file_path: str) -> dict:
+    """
+    Reads a text file and converts its key-value pairs into a JSON-like dictionary.
+
+    Args:
+        file_path (str): Path to the text file.
+
+    Returns:
+        dict: A dictionary representing the JSON object.
+
+    Raises:
+        ValueError: If the file contains invalid formatting.
+        IOError: If the file cannot be read.
+    """
+    try:
+        json_data = {}
+
+        with open(file_path, 'r') as file:
+            for line in file:
+                # Skip empty lines or lines without a colon
+                if not line.strip() or ':' not in line:
+                    continue
+
+                # Split the line into key and value
+                key, value = line.strip().split(":", 1)
+                key = key.strip()
+                value = value.strip()
+
+                # Convert numeric values to integers if possible
+                if value.isdigit():
+                    value = int(value)
+
+                json_data[key] = value
+
+        return json_data
+    except Exception as e:
+        raise ValueError(f"Error processing file: {e}")
 
 
 def get_from_file(file_path : str):
@@ -103,10 +143,10 @@ def get_params() -> Dict[str, str]:
     try:
         paths = find_all_text_files()
         if len(paths) == 1:
-            return get_from_file(paths[0])
+            return file_to_json(paths[0])
         if len(paths) >1:
             path = choose_text_file(paths)
-            return get_from_file(path)
+            return file_to_json(path)
         if len(paths) == 0:
             print("No text files found")
             params = get_from_user()
@@ -117,6 +157,20 @@ def get_params() -> Dict[str, str]:
             return params
     except Exception as error:
         print(error)
+
+def slice_json(keys_to_extract):
+    json_data = get_params()
+    partial_json = {key: json_data[key] for key in keys_to_extract if key in json_data}
+    return partial_json
+
+def get_client_params():
+    client_keys = ["massage", "timeout", "window_size"]
+    return slice_json(client_keys)
+
+
+def get_server_params():
+    server_keys = ["maximum_msg_size"]
+    return slice_json(server_keys)
 
 def write_dict_to_file(params: dict, filename: str) -> None:
     try:
