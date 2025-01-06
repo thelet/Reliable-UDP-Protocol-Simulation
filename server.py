@@ -4,7 +4,7 @@ from pickle import GLOBAL
 from socket import AF_INET, SOCK_STREAM
 from threading import Thread
 from time import sleep
-from typing import List
+from typing import List, Dict
 
 import functions
 from functions import get_from_file, get_from_user, get_params
@@ -15,7 +15,7 @@ from package import Package, GetPackage, AckPackage
 
 
 HOST = '127.0.0.1'
-PORT = 55557
+PORT = 55558
 BUFSIZ = 44
 MAX_CLIENTS = 5
 ADDR = (HOST, PORT)
@@ -131,56 +131,45 @@ def GET_MAX_Header(client_socket : socket.socket):
     client_socket.send(new_package.encode_package(int(PARAMS["maximum_msg_size"])))
 
 
-
 def MSG_Header(client_socket : socket.socket, msg_package : Package, lose_those_package : List[int] = None, client_address = None):
-    msg =[]
-    next_acks = []
-    global LAST_SEQ
-    while True:
-        try:
-            print(f"LOSE_THOSE_PACKAGE: {lose_those_package}", flush=True)
-            if int(msg_package.getSeq()) in lose_those_package:
-                print(f"losing package {msg_package.getSeq()}", flush=True)
-                lose_those_package.remove(int(msg_package.getSeq()))
-            else:
-                print(f"LAST_SEQ: {LAST_SEQ} current seq: {msg_package.get_pos()}")
-                if int(LAST_SEQ) +1 != int(msg_package.get_pos()):
-                    print(f"package {int(LAST_SEQ) +1} lost", flush=True)
-                    while LAST_SEQ+1 != int(msg_package.get_pos()):
-                        print(f"LAST_SEQ: {LAST_SEQ} current seq: {msg_package.get_pos()}")
-                        next_acks.append(msg_package)
-                        data = client_socket.recv(BUFSIZ)
-                        msg_package = Package("TEMP", " ")
-                        msg_package.decode_package(data, PARAMS["maximum_msg_size"])
-                    next_acks.sort(key=lambda package: package.get_pos())
-                    LAST_SEQ = next_acks[-1].get_pos()
-                    for msg_package in next_acks:
-                        msg_package.send_ack(client_socket, PARAMS["maximum_msg_size"])
+    last_seq = 0
+    msg_list = []
+    missing_pack : int
+    msg_on_hold =[]
+    while msg_package.get_header() == "MSG":
+        if int(last_seq +1) == int(msg_package.get_pos()):
+            print(f"sending ack for pack: {msg_package}")
+            msg_package.send_ack(client_socket, PARAMS["maximum_msg_size"])
+            msg_list.append(msg_package)
+            last_seq = int(msg_package.get_pos())
+        else:
+            while last_seq +1 != int(msg_package.get_pos()):
+                print(f"missing pack: {last_seq + 1}, prev_seq = {last_seq}, current pack = {msg_package.get_pos()}")
+                msg_on_hold.append(msg_package)
+                data = client_socket.recv(BUFSIZ)
+                msg_package = Package("TEMP", " ")
+                msg_package.decode_package(data, PARAMS["maximum_msg_size"])
 
-                        print(f"data received: {msg_package.payload}")
-                        print(f"ACK for package {msg_package.getSeq()}", flush=True)
-                    next_acks.clear()
-                else:
-                    LAST_SEQ += 1
+            if msg_package.get_pos() == last_seq +1:
+                print(f"sending ack for pack lost pack: {msg_package}")
+                msg_package.send_ack(client_socket, PARAMS["maximum_msg_size"])
+                while msg_on_hold:
+                    print(f"biggest seq: {last_seq}")
+                    print(f"sending old acks:")
+                    for old_msg in msg_on_hold:
+                        print(f"sending ack for old pack: {old_msg}")
+                        old_msg.send_ack(client_socket, PARAMS["maximum_msg_size"])
+                        msg_list.append(old_msg)
+                        last_seq = max(old_msg.getSeq(), last_seq)
 
-                msg.append(msg_package)
-                LAST_SEQ = int(msg_package.getSeq())
-                msg_package.send_ack(client_socket,PARAMS["maximum_msg_size"])
-                print(f"data received: {msg_package.payload}")
-                if msg_package.get_header() == "DONE":
-                    print("DONE")
-                    MSG_DONE_Header(msg=msg, client_socket=client_socket, msg_package=msg_package)
-                    break
+                    msg_on_hold.clear()
+            #last_seq = msg_package.get_pos()
 
-            data = client_socket.recv(BUFSIZ)
-            msg_package = Package("TEMP", " ")
-            msg_package.decode_package(data, PARAMS["maximum_msg_size"])
-            if(msg_package.get_header() == "CLOSE"):
-                CLOSE_Header(client_socket,client_address=client_address)
-
-        except OSError as e:
-            print(f"Error while handling msg: {e}", flush=True)
-            break
+    if msg_package.get_header() == "DONE":
+        print(f"done sending file")
+        if msg_on_hold or len(msg_on_hold) >0:
+            print(f"warning! lost data: {msg_on_hold}")
+        MSG_DONE_Header(msg_list, client_socket, msg_package)
 
 
 

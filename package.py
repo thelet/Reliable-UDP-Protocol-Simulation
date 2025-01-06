@@ -51,7 +51,7 @@ class Package:
 
     def send_ack(self, sock: socket, max_payload : int = 10):
         Package.ackrecv = True
-        ack_package = Package("ACK", str(self.seq))
+        ack_package = Package("ACK", str(self.get_pos()))
         sock.send(ack_package.encode_package(max_payload))
         print(f"ACK{str(self.seq)} sent!")
 
