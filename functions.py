@@ -83,12 +83,6 @@ def validate_input(params : Dict[str, Any]) -> None:
 
 
 
-
-
-
-
-
-
 def find_all_text_files() -> list[str]:
     try:
         current_directory = os.getcwd()
@@ -96,7 +90,7 @@ def find_all_text_files() -> list[str]:
 
         # Iterate over all files in the current directory
         for file_name in os.listdir(current_directory):
-            file_path = os.path.join(current_directory, file_name)
+            file_path = os.path.join(file_name)
 
             # Check if it's a .txt file
             if os.path.isfile(file_path) and file_name.endswith('.txt'):
@@ -128,6 +122,11 @@ def get_server_params():
     server_keys = ["maximum_msg_size"]
     params = slice_json(server_keys)
     params["maximum_msg_size"] = int(params.get("maximum_msg_size", 0))
+    if params["maximum_msg_size"] < 4:
+        new_value = int(input("maximum_msg_size must be at least 4: enter new max size: "))
+        if new_value < 4:
+            raise ValueError("maximum_msg_size must be at least 4")
+        params["maximum_msg_size"] = new_value
     return params
 
 

@@ -22,13 +22,14 @@ PORT = 55558
 
 MAX_CLIENTS = 1
 ADDR = (HOST, PORT)
-CLIENTS = []
+CLIENTS = [4,9,10]
 PARAMS = functions.get_server_params()
 print(PARAMS)
 MAX_MSG_SIZE = 4
 LAST_SEQ=0
 HEADER_SIZE = package.HEADER_SIZE
 BUFSIZ = HEADER_SIZE + MAX_MSG_SIZE
+ACKS_TO_LOSE = [0]
 
 
 def create_server_socket():
@@ -142,6 +143,7 @@ def MSG_Header(client_socket : socket.socket, msg_package : Package, client_addr
     last_seq = int(msg_package.get_pos()) -1
     msg_list = []
     full_msg = []
+    global ACKS_TO_LOSE
     while msg_package.get_header() == "MSG":
         try:
             print(f"received package: {msg_package} last_seq = {last_seq}")
@@ -151,7 +153,10 @@ def MSG_Header(client_socket : socket.socket, msg_package : Package, client_addr
             for pack in msg_list:
                 if int(pack.get_pos()) == last_seq +1:
                     print(f"sending ack for pack: {pack}")
-                    pack.send_ack(client_socket, PARAMS["maximum_msg_size"])
+                    if int(pack.get_pos()) in ACKS_TO_LOSE:
+                        ACKS_TO_LOSE.remove(int(pack.get_pos()))
+                    else:
+                        pack.send_ack(client_socket, PARAMS["maximum_msg_size"])
                     last_seq = pack.get_pos()
                     full_msg.append(pack)
 

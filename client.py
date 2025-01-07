@@ -26,7 +26,7 @@ GOT_MAX_SIZE = False
 
 ADDR = (HOST, PORT)
 PARAMS : Dict[str,str] ={}
-PACKAGES_TO_LOSE = [4,9,10]
+PACKAGES_TO_LOSE = [4,7,10]
 
 CURRENT_PACKAGES : Dict[int,Package]= {}
 LAST_ACK_SEQ : int = 0
@@ -139,8 +139,16 @@ def ACK_Header(ack_package : Package):
     global SEQ_WINDOW
     acked_pack = CURRENT_PACKAGES.get(int(ack_package.payload))
     if acked_pack is not None:
-        acked_pack.recvack()
         LAST_ACK_SEQ = get_last_ack_seq()
+        if acked_pack.get_pos() > LAST_ACK_SEQ +1:
+            print(f"ACKED PACKAGE OUT OF ORDER: {acked_pack}, acks {[i for i in range(LAST_ACK_SEQ+1, acked_pack.get_pos())]} where lost")
+            for i in range(LAST_ACK_SEQ+1, acked_pack.get_pos()):
+                next_ack = CURRENT_PACKAGES.get(i)
+                print(f"Correcting lost ack {next_ack.get_pos()}")
+                next_ack.recvack()
+
+        acked_pack.recvack()
+
         print(f"\nreceived ACK {ack_package.payload} ! \n")
         update_window_size()
     else:
@@ -244,7 +252,7 @@ def slice_data(data : bytes):
 
 
 def send_from_text_file(client_socket : socket.socket):
-    msg = PARAMS.get("massage")
+    msg = str(PARAMS.get("massage"))
     print(f"sending msg from file: {msg}")
     sliced_msg = slice_data(msg.encode("utf-8"))
     print(f"sliced msg: {sliced_msg}")
