@@ -1,6 +1,6 @@
 import json
 
-from package import Package  # Assuming this Package class is part of your codebase
+from package import Package 
 
 def extract_seq_payload_dict(json_file_path):
     """
@@ -15,7 +15,7 @@ def extract_seq_payload_dict(json_file_path):
     seq_payload_dict = {}
 
     with open(json_file_path, 'r', encoding='utf-8') as f:
-        packets = json.load(f)  # The JSON file is typically an array of packet objects
+        packets = json.load(f) 
 
         for packet in packets:
             try:
@@ -81,10 +81,11 @@ if __name__ == "__main__":
 
         # Optionally, decode as a Package if you have a decode method
         temp_pack = Package("TEMP", " ")
-        # E.g., decode using a fixed-size approach if your class supports it
+        
         try:
-            temp_pack.decode_package(payload, 4)  # or whatever method signature you have
+            temp_pack.decode_package(payload, 4)  
             print(temp_pack, end = "")
         except Exception as decode_err:
             print(f"Decode error for key={seq}: {decode_err}")
         print()
+
