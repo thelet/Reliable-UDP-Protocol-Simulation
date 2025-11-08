@@ -27,3 +27,19 @@ python server.py
 python client.py --max-msg-size 4   # minimum accepted
 
 # (Optional) use provided params files in /demo to auto-load scenarios
+
+## 🧪 Repro Demos
+
+Lost packets: PACKAGES_TO_LOSE=[4,9,10] → client resends after time/seq threshold; server resumes ordered ACKs.
+
+Lost ACKs: ACKS_TO_LOSE=[4,9,10] → client infers earlier packets were delivered when it receives later ACKs.
+
+See docs/wireshark.md for annotated traces and decoded frames.
+
+## 🛠️ Implementation Notes
+
+Fixed-size codec via struct to ensure constant framing on the wire.
+
+Sliding window updates on every ACK; resend on threshold pass.
+
+DONE → server acks, reconstructs message in order, then clean shutdown.
