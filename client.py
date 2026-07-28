@@ -36,9 +36,7 @@ SEQ_WINDOW = 0
 
 
 
-########################################
-# פתיחה של ה SOCKET וחיבור לשרת
-########################################
+
 def create_client_socket():
     client_socket = socket.socket(AF_INET, SOCK_STREAM)
     client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
